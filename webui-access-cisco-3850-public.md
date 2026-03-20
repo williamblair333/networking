@@ -164,7 +164,7 @@ Once Web UI access is confirmed working:
 
 ```
 no ip http server
-ip http access-class 99 in
+ip http access-class ipv4 99
 access-list 99 permit 192.168.1.0 0.0.0.255
 access-list 99 deny   any
 ```
