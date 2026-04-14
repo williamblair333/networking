@@ -545,16 +545,58 @@ A verified WAN 2 failover path is the correct way to cover internet continuity d
 
 ---
 
+### 🔴 Lesson 8 — Secondary ISP Gateway Must Be in IP Passthrough Mode, Not Bridge
+
+Bridge mode on a secondary ISP gateway typically still performs NAT — the MX WAN 2 interface receives a private IP (e.g., 192.168.x.x) from the gateway's DHCP rather than the real public IP. This results in double NAT: the MX NATs outbound traffic once, and the ISP gateway NATs it again. Double NAT frequently breaks IPsec-based tunnels and other protocols sensitive to source IP changes.
+
+**Fix:** Configure the secondary ISP gateway for **IP passthrough** (terminology varies by vendor — may also be called DMZ host, bridge mode, or transparent mode). This causes the gateway to pass the real public IP directly to the MX via DHCP. WAN 2 on the Appliance Status page should show a real public IP rather than a private address after the change.
+
+**Confirm:** Dashboard → Security & SD-WAN → Monitor → Appliance Status → Uplink tab → WAN 2 IP should be a publicly routable address, not 192.168.x.x or 10.x.x.x.
+
+---
+
+### 🔴 Lesson 9 — IP Passthrough Requires MX Connected to Gateway's LAN1 Port
+
+Discovered in production: IP passthrough on the secondary ISP gateway only functions correctly when the MX is connected to the gateway's **LAN1** port specifically. Other LAN ports on the gateway may not pass through the public IP. If IP passthrough appears configured but WAN 2 still shows a private IP, verify the physical cable is in LAN1.
+
+---
+
+### 🔴 Lesson 10 — Third-Party IPsec Appliances on the LAN Are Affected by WAN Failover
+
+Any device on the LAN that maintains its own independent IPsec tunnel to a remote endpoint — such as an alerting, dispatch, or public-safety appliance — uses the MX as its default gateway. When the MX fails over to WAN 2, that device's IPsec traffic exits through a different public IP. The remote endpoint's firewall may reject the connection if it only accepts traffic from known source IPs.
+
+This is entirely separate from Meraki Auto VPN, which is cloud-brokered and IP-agnostic. Third-party IPsec appliances are not aware of Meraki failover and must re-establish their tunnels independently over the new path.
+
+**Resolution options:**
+
+- Configure the secondary ISP gateway for IP passthrough (eliminates double NAT — see Lessons 8 and 9)
+- Request that the remote endpoint's firewall accept the secondary ISP's public IP as an additional allowed peer
+- Expect a reconnect delay of 1–2 minutes after failover while the IPsec tunnel re-establishes — this is normal behavior once the path is clean
+
+**Before relying on WAN 2 failover operationally:** Identify any third-party IPsec appliances on the LAN, confirm their reconnect behavior over the secondary path, and coordinate with the remote endpoint operator if source IP allowlisting is required.
+
+---
+
+### 🟢 Lesson 11 — Meraki Auto VPN Is Not Affected by Source IP Changes
+
+Unlike third-party IPsec appliances, Meraki Auto VPN tunnels are cloud-brokered. When the hub or spoke MX fails over and its WAN IP changes, the Meraki cloud notifies all VPN peers of the new address and tunnels renegotiate automatically. No source IP allowlisting is required at the remote end and no manual reconfiguration is needed. The only prerequisite is that all devices maintain active Meraki cloud connectivity (valid license, internet reachable).
+
+Do not conflate this with third-party IPsec tunnels running on LAN-connected appliances — they behave entirely differently during a WAN failover event.
+
+---
+
 ## Checklist
 
 ### Phase 1 — WAN 2 Setup
 
-- [ ] ISP2 gateway connected to MX Port 2 (LAN port, not yet WAN)
+- [ ] ISP2 gateway connected to MX **LAN1** port (required for IP passthrough)
+- [ ] ISP2 gateway configured for **IP passthrough** — not bridge mode
 - [ ] ISP2 gateway powered on and DHCP enabled
 - [ ] LAN trunk port confirmed (e.g., Port 3) — do not convert this port
 - [ ] **MX80:** Dashboard → Addressing & VLANs → MX Ports → set Port 2 to WAN, DHCP → Save
 - [ ] **Other models:** From LAN device, navigate to `http://[MX-LAN-IP]` → Uplink tab → Convert Port 2 from LAN to WAN → DHCP → Save
-- [ ] Dashboard → Appliance Status → Uplink tab → WAN 2 shows **Ready** with DHCP IP
+- [ ] Dashboard → Appliance Status → Uplink tab → WAN 2 shows **Ready** with a publicly routable IP (not 192.168.x.x or 10.x.x.x)
+- [ ] Third-party IPsec appliances on LAN identified and failover behavior confirmed
 
 ### Phase 2 — Failover Configuration
 
